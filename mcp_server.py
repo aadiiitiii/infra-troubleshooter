@@ -21,7 +21,7 @@ templates = Jinja2Templates(directory="templates")
 status: Dict[str, Dict] = {}
 remediation_log = []
 
-CLUSTER_NAME = os.getenv("CLUSTER_NAME", "casbx-mgmt-plane-us-central1")
+CLUSTER_NAME = os.getenv("CLUSTER_NAME", "<your-cluster-name>")
 
 # Port-forward mapping
 PORT_FORWARDS = {

@@ -157,7 +157,7 @@ kubectl delete pod -n vault $(kubectl get pods -n vault -o name | head -1)
 
 ### Environment Variables
 ```bash
-export CLUSTER_NAME="your-cluster-name"           # Default: casbx-mgmt-plane-us-central1
+export CLUSTER_NAME="your-cluster-name"           # Default: <your-cluster-name>
 export CHECK_INTERVAL="30"                        # Health check interval in seconds
 ```
 

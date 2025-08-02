@@ -1,7 +1,7 @@
 import requests
 
 MCP_SERVER_URL = "http://localhost:7070"
-CLUSTER_NAME = "casbx-mgmt-plane-us-central1"
+CLUSTER_NAME = "<your-cluster-name>"
 ES_ENDPOINT = "http://localhost:9200/es1/_cluster/health"
 
 def send_report(cluster, service, healthy, details=""):

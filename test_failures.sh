@@ -18,7 +18,7 @@ wait_for_detection() {
     echo "⏳ Waiting for detection of $service status (healthy=$expected_healthy)..."
     
     while [ $timeout -gt 0 ]; do
-        status=$(curl -s http://localhost:7070/api/status | jq -r ".status.\"casbx-mgmt-plane-us-central1-$service\".healthy")
+        status=$(curl -s http://localhost:7070/api/status | jq -r ".status.\"<your-cluster-name>-$service\".healthy")
         if [ "$status" = "$expected_healthy" ]; then
             echo -e "${GREEN}✅ Status detected correctly${NC}"
             return 0
@@ -187,7 +187,7 @@ fi
 echo "Waiting for Consul to become healthy..."
 timeout=120
 while [ $timeout -gt 0 ]; do
-    consul_status=$(curl -s http://localhost:7070/api/status | jq -r ".status.\"casbx-mgmt-plane-us-central1-consul\".healthy")
+    consul_status=$(curl -s http://localhost:7070/api/status | jq -r ".status.\"<your-cluster-name>-consul\".healthy")
     if [ "$consul_status" = "true" ]; then
         echo -e "${GREEN}✅ Consul is healthy again${NC}"
         break

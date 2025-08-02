@@ -3,7 +3,7 @@ import time
 import os
 
 MCP_SERVER_URL = "http://localhost:7070"
-CLUSTER_NAME = os.getenv("CLUSTER_NAME", "casbx-mgmt-plane-us-central1")
+CLUSTER_NAME = os.getenv("CLUSTER_NAME", "<your-cluster-name>")
 ES_ENDPOINT = "http://localhost:9200/_cluster/health"
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "30"))  # seconds
 
