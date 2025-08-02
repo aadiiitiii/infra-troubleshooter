@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Infra Auto-Troubleshooter Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body {
+      padding: 30px;
+      background-color: #f8f9fa;
+    }
+    .status-healthy {
+      color: #198754;
+      font-weight: 600;
+    }
+    .status-unhealthy {
+      color: #dc3545;
+      font-weight: 600;
+    }
+    .tooltip-inner {
+      max-width: 300px;
+      white-space: pre-wrap;
+    }
+    code {
+      font-size: 0.875rem;
+    }
+    .auto-refresh {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .auto-refresh-active {
+      color: #198754;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1 class="mb-4">Infra Auto-Troubleshooter Dashboard</h1>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2>Service Health Status</h2>
+      <div>
+        <button id="refreshBtn" class="btn btn-outline-primary btn-sm me-2">
+          <span id="refreshIcon">🔄</span> Refresh
+        </button>
+        <div class="form-check form-switch d-inline-block">
+          <input class="form-check-input" type="checkbox" id="autoRefresh">
+          <label class="form-check-label" for="autoRefresh" id="autoRefreshLabel">
+            Auto-refresh (<span id="refreshInterval">5s</span>)
+          </label>
+        </div>
+        <small class="text-muted ms-2" id="refreshStatus"></small>
+      </div>
+    </div>
+
+    <table class="table table-striped table-hover align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Service</th>
+          <th>Cluster</th>
+          <th>Status</th>
+          <th>Host</th>
+          <th>Details</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key, val in status.items() %}
+          {% set last_dash = key.rfind('-') %}
+          {% set cluster = key[:last_dash] %}
+          {% set service = key[last_dash+1:] %}
+          <tr>
+            <td><strong>{{ service }}</strong></td>
+            <td><code>{{ cluster }}</code></td>
+            <td>
+              {% if val['healthy'] %}
+                <span class="status-healthy">✅ Healthy</span>
+              {% else %}
+                <span class="status-unhealthy">❌ Unhealthy</span>
+              {% endif %}
+            </td>
+            <td><code>{{ val['consul_host'] }}</code></td>
+            <td>
+              {% if val['details'] %}
+                <button type="button" class="btn btn-sm btn-outline-info" 
+                        data-bs-toggle="tooltip" 
+                        data-bs-placement="top"
+                        title="{{ val['details']|e }}">
+                  ℹ️ Details
+                </button>
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not val['healthy'] %}
+                <button class="btn btn-sm btn-danger remediate-btn" 
+                        onclick="remediate('{{ service }}')"
+                        data-service="{{ service }}">
+                  🔧 Remediate
+                </button>
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted">No status reports yet. Waiting for agent data...</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2 class="mt-5">Remediation Log</h2>
+    <div class="table-responsive">
+      <table class="table table-bordered">
+        <thead class="table-secondary">
+          <tr>
+            <th>Timestamp</th>
+            <th>Cluster</th>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in remediation_log %}
+            <tr class="{% if entry.status == 'success' %}table-success{% else %}table-danger{% endif %}">
+              <td><small>{{ loop.index }}</small></td>
+              <td>{{ entry.cluster }}</td>
+              <td><strong>{{ entry.service }}</strong></td>
+              <td>
+                {% if entry.status == 'success' %}
+                  <span class="badge bg-success">✅ {{ entry.status|title }}</span>
+                {% else %}
+                  <span class="badge bg-danger">❌ {{ entry.status|title }}</span>
+                {% endif %}
+              </td>
+              <td><small>{{ entry.message }}</small></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="text-center text-muted">No remediation actions logged yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Enable Bootstrap tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
+    let autoRefreshInterval = null;
+    let refreshCountdown = null;
+    let countdownSeconds = 0;
+
+    // Auto-refresh settings
+    const REFRESH_INTERVAL = 5000; // 5 seconds
+    const STORAGE_KEY = 'dashboard_auto_refresh';
+
+    // Load auto-refresh preference from localStorage
+    function loadAutoRefreshPreference() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      const autoRefreshCheckbox = document.getElementById('autoRefresh');
+      
+      if (saved === 'true') {
+        autoRefreshCheckbox.checked = true;
+        startAutoRefresh();
+      } else {
+        autoRefreshCheckbox.checked = false;
+      }
+      
+      console.log('Loaded auto-refresh preference:', saved);
+    }
+
+    // Save auto-refresh preference to localStorage
+    function saveAutoRefreshPreference(enabled) {
+      localStorage.setItem(STORAGE_KEY, enabled.toString());
+      console.log('Saved auto-refresh preference:', enabled);
+    }
+
+    // Update UI to show auto-refresh status
+    function updateAutoRefreshStatus(active) {
+      const label = document.getElementById('autoRefreshLabel');
+      const status = document.getElementById('refreshStatus');
+      
+      if (active) {
+        label.classList.add('auto-refresh-active');
+        status.textContent = 'Active';
+        status.className = 'text-success ms-2';
+      } else {
+        label.classList.remove('auto-refresh-active');
+        status.textContent = '';
+        status.className = 'text-muted ms-2';
+      }
+    }
+
+    // Start countdown display
+    function startCountdown() {
+      countdownSeconds = REFRESH_INTERVAL / 1000;
+      const intervalElement = document.getElementById('refreshInterval');
+      
+      refreshCountdown = setInterval(() => {
+        countdownSeconds--;
+        intervalElement.textContent = `${countdownSeconds}s`;
+        
+        if (countdownSeconds <= 0) {
+          intervalElement.textContent = '5s';
+          countdownSeconds = REFRESH_INTERVAL / 1000;
+        }
+      }, 1000);
+    }
+
+    // Stop countdown display
+    function stopCountdown() {
+      if (refreshCountdown) {
+        clearInterval(refreshCountdown);
+        refreshCountdown = null;
+      }
+      document.getElementById('refreshInterval').textContent = '5s';
+    }
+
+    // Start auto-refresh
+    function startAutoRefresh() {
+      if (autoRefreshInterval) return; // Already running
+      
+      autoRefreshInterval = setInterval(refreshPage, REFRESH_INTERVAL);
+      startCountdown();
+      updateAutoRefreshStatus(true);
+      console.log('Auto-refresh started (5s interval)');
+    }
+
+    // Stop auto-refresh
+    function stopAutoRefresh() {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+      }
+      stopCountdown();
+      updateAutoRefreshStatus(false);
+      console.log('Auto-refresh stopped');
+    }
+
+    async function remediate(service) {
+      const button = document.querySelector(`[data-service="${service}"]`);
+      const originalText = button.innerHTML;
+      
+      try {
+        button.innerHTML = '⏳ Working...';
+        button.disabled = true;
+        
+        const response = await fetch(`/remediate/${service}`, { method: "POST" });
+        const data = await response.json();
+        
+        // Show success message
+        button.innerHTML = '✅ Started';
+        button.classList.remove('btn-danger');
+        button.classList.add('btn-success');
+        
+        // Refresh after a short delay to show updated status
+        setTimeout(() => {
+          refreshPage();
+        }, 2000);
+        
+      } catch (err) {
+        button.innerHTML = '❌ Failed';
+        button.classList.add('btn-outline-danger');
+        console.error('Remediation failed:', err);
+        
+        // Reset button after error
+        setTimeout(() => {
+          button.innerHTML = originalText;
+          button.disabled = false;
+          button.classList.remove('btn-outline-danger');
+        }, 5000);
+      }
+    }
+
+    function refreshPage() {
+      const icon = document.getElementById('refreshIcon');
+      icon.classList.add('auto-refresh');
+      
+      // Preserve auto-refresh state before reload
+      const isAutoRefreshEnabled = document.getElementById('autoRefresh').checked;
+      saveAutoRefreshPreference(isAutoRefreshEnabled);
+      
+      location.reload();
+    }
+
+    function toggleAutoRefresh() {
+      const checkbox = document.getElementById('autoRefresh');
+      
+      if (checkbox.checked) {
+        startAutoRefresh();
+        saveAutoRefreshPreference(true);
+      } else {
+        stopAutoRefresh();
+        saveAutoRefreshPreference(false);
+      }
+    }
+
+    // Event listeners
+    document.getElementById('refreshBtn').addEventListener('click', refreshPage);
+    document.getElementById('autoRefresh').addEventListener('change', toggleAutoRefresh);
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      loadAutoRefreshPreference();
+      
+      // Show last refresh time
+      const now = new Date();
+      console.log(`Dashboard loaded at ${now.toLocaleTimeString()}`);
+    });
+
+    // Handle page visibility changes (pause auto-refresh when tab is hidden)
+    document.addEventListener('visibilitychange', function() {
+      const checkbox = document.getElementById('autoRefresh');
+      
+      if (document.hidden) {
+        // Page is hidden, pause auto-refresh
+        if (autoRefreshInterval && checkbox.checked) {
+          stopAutoRefresh();
+          console.log('Auto-refresh paused (tab hidden)');
+        }
+      } else {
+        // Page is visible, resume auto-refresh if it was enabled
+        if (checkbox.checked && !autoRefreshInterval) {
+          startAutoRefresh();
+          console.log('Auto-refresh resumed (tab visible)');
+        }
+      }
+    });
+  </script>
+
+</body>
+</html>
